@@ -1,0 +1,106 @@
+services:
+  mysql-db-inventory:
+    image: mariadb:10.8.3
+    container_name: mysql-db-inventory
+    restart: always
+    volumes:
+      - mysql_data:/var/lib/mysql
+    environment:
+      MYSQL_DATABASE: inventory-db
+      MYSQL_USER: ahmed
+      MYSQL_PASSWORD: 1234
+      MYSQL_ROOT_PASSWORD: admin
+    ports:
+      - 3306:3306
+    healthcheck:
+      test: ["CMD","mysqladmin","ping","-h","localhost"]
+      timeout: 5s
+      retries: 10
+  phpmyadmin:
+    image: phpmyadmin
+    container_name: pma
+    restart: always
+    ports:
+      - 9999:80
+    environment:
+      PMA_HOST: inventory-db
+      PMA_PORT: 3306
+      PMA_ARBITRARY: 1
+  inventory-service:
+    build: ./inventory-service
+    container_name: inventory-service
+    restart: on-failure
+    ports:
+      - 8098:8098
+    expose:
+      - 8098
+    environment:
+      DB_URL: jdbc:mysql://mysql-db-inventory:3306/inventory-db?createDatabaseIfNotExist=true
+    depends_on:
+      mysql-db-inventory:
+        condition: service_started
+
+  postgres-service:
+    image: postgres:latest
+    ports:
+      - "5432:5432"
+    environment:
+      POSTGRES_USER: keycloak
+      POSTGRES_PASSWORD: k1234
+      POSTGRES_DB: keycloak
+    volumes:
+      - local_pgdata:/var/lib/postgresql/data
+  pgadmin:
+    image: dpage/pgadmin4
+    container_name: pgadmin4_container
+    restart: always
+    ports:
+      - "8888:80"
+    environment:
+      PGADMIN_DEFAULT_EMAIL: ahmed@isimm.com
+      PGADMIN_DEFAULT_PASSWORD: 1234
+    volumes:
+      - pgadmin_data:/var/lib/pgadmin
+  keycloak:
+    image: quay.io/keycloak/keycloak:latest
+    command: start-dev
+    environment:
+      KEYCLOAK_ADMIN: admin
+      KEYCLOAK_ADMIN_PASSWORD: admin
+      KC_DB: postgres
+      KC_DB_URL: jdbc:postgresql://postgres-service:5432/keycloak
+      KC_DB_USERNAME: keycloak
+      KC_DB_PASSWORD: k1234
+    ports:
+      - 8080:8080
+    restart: always
+    depends_on:
+      - postgres-service
+  customer-app-front-thymleaf:
+    build: ./customers-app-with-thymleaf
+    container_name: customer-app-front-thymleaf
+    restart: on-failure
+    ports:
+      - 8090:8090
+    expose:
+      - 8090
+    environment:
+      - KEYCLOAK_REDIRECT_URI=http://192.168.134.3:8090/login/oauth2/code/sdia-customer-client
+      - KEYCLOAK_ISSUER_URI=http://192.168.134.3:8080/realms/sdia-realm
+      - KEYCLOAK_AUTH=http://192.168.134.3:8080/realms/sdia-realm/protocol/openid-connect/token
+      - KEYCLOAK_AUTH_TOKEN=http://192.168.134.3:8080/realms/sdia-realm/protocol/openid-connect/token
+    depends_on:
+      keycloak:
+        condition: service_started
+  angular-front:
+    build: ./customer-front-angular-app
+    container_name: angular-front
+    ports:
+      - 80:80
+    expose:
+      - 80
+    restart: always
+volumes:
+  mysql_data:
+  local_pgdata:
+  pgadmin_data:
